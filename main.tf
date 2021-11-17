@@ -54,8 +54,8 @@ resource "aws_iam_role_policy" "CodeDeploy_EC2_S3" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "arn:aws:s3:::codedeploy.csye6225saurabh",
-        "arn:aws:s3:::codedeploy.csye6225saurabh/*"
+        "arn:aws:s3:::codedeploy.csye6225saurabh.prod",
+        "arn:aws:s3:::codedeploy.csye6225saurabh.prod/*"
       ]
     }
   ]
@@ -210,12 +210,14 @@ resource "aws_codedeploy_app" "code_deploy_app" {
   compute_platform = "Server"
   name             = "csye6225-webapp"
 }
-
+data "aws_autoscaling_group" "autoscaling" {
+    name   = "autoscaling-group"
+} 
 resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
-  app_name               = "${aws_codedeploy_app.code_deploy_app.name}"
+  app_name               = aws_codedeploy_app.code_deploy_app.name
   deployment_group_name  = "csye6225-webapp-deployment"
   deployment_config_name = "CodeDeployDefault.AllAtOnce"
-  service_role_arn       = "${aws_iam_role.code_deploy_role.arn}"
+  service_role_arn       = aws_iam_role.code_deploy_role.arn
 
   ec2_tag_filter {
     key   = "Name"
@@ -232,8 +234,14 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE"]
   }
-
-
+  autoscaling_groups = ["${data.aws_autoscaling_group.autoscaling.name}"]
+  ec2_tag_set {
+    ec2_tag_filter {
+      key   = "Name"
+      type  = "KEY_AND_VALUE"
+      value = "Webapp"
+    }
+  }
   depends_on = [aws_codedeploy_app.code_deploy_app]
 }
 
@@ -241,50 +249,68 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
 data "aws_caller_identity" "current" {}
 
 locals {
-  aws_user_account_id = "${data.aws_caller_identity.current.account_id}"
+  aws_user_account_id = data.aws_caller_identity.current.account_id
 }
 
 # Attach the policy for CodeDeploy role for webapp
 resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
-  role       = "${aws_iam_role.code_deploy_role.name}"
+  role       = aws_iam_role.code_deploy_role.name
 }
 
 resource "aws_iam_user_policy_attachment" "ghactions_ec2_policy_attach" {
   user       = "ghactions"
-  policy_arn = "${aws_iam_policy.ghactions_user_policy.arn}"
+  policy_arn = aws_iam_policy.ghactions_user_policy.arn
 }
 
 resource "aws_iam_user_policy_attachment" "ghactions_s3_policy_attach" {
   user       = "ghactions"
-  policy_arn = "${aws_iam_policy.gh_upload_s3.arn}"
+  policy_arn = aws_iam_policy.gh_upload_s3.arn
 }
 
 
 resource "aws_iam_user_policy_attachment" "ghactions_codedeploy_policy_attach" {
   user       = "ghactions"
-  policy_arn = "${aws_iam_policy.GH_Code_Deploy.arn}"
+  policy_arn = aws_iam_policy.GH_Code_Deploy.arn
 }
 
-data "aws_instance" "myinstance" {
-  
-  filter {
-    name = "tag:Name"
-    values = ["Webapp"]
-  }
-}
+// data "aws_instance" "myinstance" {
+
+//   filter {
+//     name   = "tag:Name"
+//     values = ["Webapp"]
+//   }
+// }
 
 
 # add/update the DNS record api.dev.yourdomainname.tld. to the public IP address of the EC2 instance 
 data "aws_route53_zone" "selected" {
-  name         = "dev.${var.domain_Name}"
+  name         = "prod.${var.domain_Name}"
   private_zone = false
 }
 
+// resource "aws_route53_record" "www" {
+//   zone_id = data.aws_route53_zone.selected.zone_id
+//   name    = data.aws_route53_zone.selected.name
+//   type    = "A"
+//   ttl     = "60"
+//   records = ["${data.aws_instance.myinstance.public_ip}"]
+// }
+
+
+data "aws_lb" "myinstance" {
+  name = "application-Load-Balancer"
+}
+
 resource "aws_route53_record" "www" {
+  allow_overwrite = true
   zone_id = data.aws_route53_zone.selected.zone_id
-  name    = "${data.aws_route53_zone.selected.name}"
+  name = "${data.aws_route53_zone.selected.name}"
   type    = "A"
-  ttl     = "60"
-  records = ["${data.aws_instance.myinstance.public_ip}"]
+  alias {
+    name                   = "${data.aws_lb.myinstance.dns_name}"
+    zone_id                = "${data.aws_lb.myinstance.zone_id}"
+    evaluate_target_health = true
+  }
+
 }
