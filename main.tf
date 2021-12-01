@@ -35,7 +35,8 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 }
 
 
-# CodeDeploy-EC2-S3 policy allows EC2 instances to read data from S3 buckets. This policy is required for EC2 instances to download latest application revision.
+# CodeDeploy-EC2-S3 policy allows EC2 instances to read data from S3 buckets. 
+# This policy is required for EC2 instances to download latest application revision.
 resource "aws_iam_role_policy" "CodeDeploy_EC2_S3" {
   name = "CodeDeploy-EC2-S3"
   role = data.aws_iam_role.role.id
@@ -219,11 +220,11 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
   deployment_config_name = "CodeDeployDefault.AllAtOnce"
   service_role_arn       = aws_iam_role.code_deploy_role.arn
 
-  ec2_tag_filter {
-    key   = "Name"
-    type  = "KEY_AND_VALUE"
-    value = "Webapp"
-  }
+  // ec2_tag_filter {
+  //   key   = "Name"
+  //   type  = "KEY_AND_VALUE"
+  //   value = "Webapp"
+  // }
 
   deployment_style {
     deployment_option = "WITHOUT_TRAFFIC_CONTROL"
