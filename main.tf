@@ -25,21 +25,20 @@ provider "aws" {
 //     Name = "CodeDeployEC2ServiceRole"
 //   }
 // }
-data "aws_iam_role" "role" {
+
+
+data "aws_iam_role" "ec2Role" {
   name = "EC2-CSYE6225"
 }
 
-resource "aws_iam_instance_profile" "ec2_profile" {
+resource "aws_iam_instance_profile" "ec2Profile" {
   name = "ec2_profile"
-  role = data.aws_iam_role.role.name
+  role = data.aws_iam_role.ec2Role.name
 }
 
-
-# CodeDeploy-EC2-S3 policy allows EC2 instances to read data from S3 buckets. 
-# This policy is required for EC2 instances to download latest application revision.
 resource "aws_iam_role_policy" "CodeDeploy_EC2_S3" {
-  name = "CodeDeploy-EC2-S3"
-  role = data.aws_iam_role.role.id
+  name = "CodeDeployEC2S3"
+  role = data.aws_iam_role.ec2Role.id
 
   policy = <<EOF
 {
@@ -64,8 +63,8 @@ resource "aws_iam_role_policy" "CodeDeploy_EC2_S3" {
 EOF
 }
 
-resource "aws_iam_policy" "gh_upload_s3" {
-  name   = "gh_upload_s3"
+resource "aws_iam_policy" "ghActionUploadS3" {
+  name   = "ghActionUploadS3"
   policy = <<EOF
 {
     "Version": "2012-10-17",
@@ -90,8 +89,7 @@ EOF
 }
 
 # GH-Code-Deploy Policy for GitHub Actions to Call CodeDeploy
-
-resource "aws_iam_policy" "GH_Code_Deploy" {
+resource "aws_iam_policy" "GHCodeDeploy" {
   name   = "GH-Code-Deploy"
   policy = <<EOF
 {
@@ -104,7 +102,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
         "codedeploy:GetApplicationRevision"
       ],
       "Resource": [
-        "arn:aws:codedeploy:${var.region}:${local.aws_user_account_id}:application:${aws_codedeploy_app.code_deploy_app.name}"
+        "arn:aws:codedeploy:${var.region}:${local.aws_user_account_id}:application:${aws_codedeploy_app.codeDeployApplication.name}"
       ]
     },
     {
@@ -114,7 +112,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
         "codedeploy:GetDeployment"
       ],
       "Resource": [
-         "arn:aws:codedeploy:${var.region}:${local.aws_user_account_id}:deploymentgroup:${aws_codedeploy_app.code_deploy_app.name}/${aws_codedeploy_deployment_group.code_deploy_deployment_group.deployment_group_name}"
+         "arn:aws:codedeploy:${var.region}:${local.aws_user_account_id}:deploymentgroup:${aws_codedeploy_app.codeDeployApplication.name}/${aws_codedeploy_deployment_group.code_deploy_deployment_group.deployment_group_name}"
       ]
     },
     {
@@ -133,9 +131,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
 EOF
 }
 
-
-# IAM Role for CodeDeploy
-resource "aws_iam_role" "code_deploy_role" {
+resource "aws_iam_role" "codeDeployRole" {
   name = "CodeDeployServiceRole"
 
   assume_role_policy = <<EOF
@@ -155,7 +151,7 @@ resource "aws_iam_role" "code_deploy_role" {
 EOF
 }
 
-resource "aws_iam_policy" "ghactions_user_policy" {
+resource "aws_iam_policy" "ghactionsUserPolicy" {
   name   = "ghactions_user_policy"
   policy = <<-EOF
   {
@@ -204,21 +200,21 @@ resource "aws_iam_policy" "ghactions_user_policy" {
 
 }
 
-
-
-#CodeDeploy App and Group for webapp
-resource "aws_codedeploy_app" "code_deploy_app" {
+resource "aws_codedeploy_app" "codeDeployApplication" {
   compute_platform = "Server"
   name             = "csye6225-webapp"
 }
-data "aws_autoscaling_group" "autoscaling" {
-    name   = "autoscaling-group"
+
+data "aws_autoscaling_group" "autoscalingGroup" {
+    name   = "autoscalingGroup"
 } 
+
+
 resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
-  app_name               = aws_codedeploy_app.code_deploy_app.name
+  app_name               = aws_codedeploy_app.codeDeployApplication.name
   deployment_group_name  = "csye6225-webapp-deployment"
   deployment_config_name = "CodeDeployDefault.AllAtOnce"
-  service_role_arn       = aws_iam_role.code_deploy_role.arn
+  service_role_arn       = aws_iam_role.codeDeployRole.arn
 
   // ec2_tag_filter {
   //   key   = "Name"
@@ -235,7 +231,7 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE"]
   }
-  autoscaling_groups = ["${data.aws_autoscaling_group.autoscaling.name}"]
+  autoscaling_groups = ["${data.aws_autoscaling_group.autoscalingGroup.name}"]
   ec2_tag_set {
     ec2_tag_filter {
       key   = "Name"
@@ -243,7 +239,7 @@ resource "aws_codedeploy_deployment_group" "code_deploy_deployment_group" {
       value = "Webapp"
     }
   }
-  depends_on = [aws_codedeploy_app.code_deploy_app]
+  depends_on = [aws_codedeploy_app.codeDeployApplication]
 }
 
 
@@ -256,23 +252,23 @@ locals {
 # Attach the policy for CodeDeploy role for webapp
 resource "aws_iam_role_policy_attachment" "AWSCodeDeployRole" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
-  role       = aws_iam_role.code_deploy_role.name
+  role       = aws_iam_role.codeDeployRole.name
 }
 
 resource "aws_iam_user_policy_attachment" "ghactions_ec2_policy_attach" {
   user       = "ghactions"
-  policy_arn = aws_iam_policy.ghactions_user_policy.arn
+  policy_arn = aws_iam_policy.ghactionsUserPolicy.arn
 }
 
 resource "aws_iam_user_policy_attachment" "ghactions_s3_policy_attach" {
   user       = "ghactions"
-  policy_arn = aws_iam_policy.gh_upload_s3.arn
+  policy_arn = aws_iam_policy.ghActionUploadS3.arn
 }
 
 
 resource "aws_iam_user_policy_attachment" "ghactions_codedeploy_policy_attach" {
   user       = "ghactions"
-  policy_arn = aws_iam_policy.GH_Code_Deploy.arn
+  policy_arn = aws_iam_policy.GHCodeDeploy.arn
 }
 
 // data "aws_instance" "myinstance" {
@@ -299,8 +295,8 @@ data "aws_route53_zone" "selected" {
 // }
 
 
-data "aws_lb" "myinstance" {
-  name = "application-Load-Balancer"
+data "aws_lb" "applicationLoadBalancer" {
+  name = "applicationLoadBalancer"
 }
 
 resource "aws_route53_record" "www" {
@@ -309,8 +305,8 @@ resource "aws_route53_record" "www" {
   name = "${data.aws_route53_zone.selected.name}"
   type    = "A"
   alias {
-    name                   = "${data.aws_lb.myinstance.dns_name}"
-    zone_id                = "${data.aws_lb.myinstance.zone_id}"
+    name                   = "${data.aws_lb.applicationLoadBalancer.dns_name}"
+    zone_id                = "${data.aws_lb.applicationLoadBalancer.zone_id}"
     evaluate_target_health = true
   }
 
